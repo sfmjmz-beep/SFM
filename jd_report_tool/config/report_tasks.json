@@ -1,0 +1,29 @@
+{
+  "tasks": [
+    {
+      "task_name": "商品明细-SPU",
+      "url": "https://jdsz.jd.com/szweb/view/product/productDetail.html",
+      "download_mode": "download_center",
+      "tab": "SPU",
+      "date_mode": "yesterday",
+      "download_type": "分天下载",
+      "download_range": "不包含对比时间"
+    },
+    {
+      "task_name": "商品明细-SKU",
+      "url": "https://jdsz.jd.com/szweb/view/product/productDetail.html",
+      "download_mode": "download_center",
+      "tab": "SKU",
+      "date_mode": "yesterday",
+      "download_type": "分天下载",
+      "download_range": "不包含对比时间"
+    },
+    {
+      "task_name": "商品排名定位",
+      "url": "https://jdsz.jd.com/squidweb/view/flow/rankLocation.html",
+      "download_mode": "direct_download",
+      "tab": "商品排名",
+      "date_mode": "yesterday"
+    }
+  ]
+}
