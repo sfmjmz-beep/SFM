@@ -7,7 +7,7 @@ import pandas as pd
 from fastapi import FastAPI, File, Query, UploadFile
 
 from .database import Database
-from .db_importer import BaseInfoImporter, sync_summary_to_db
+from .db_importer import BaseInfoImporter, JDDataImporter, sync_summary_to_db
 from .logger import logger
 
 app = FastAPI(title="JD Operation Local API", version="0.1.0")
@@ -26,12 +26,12 @@ def get_stores():
 
 @app.get("/products/spu")
 def get_products_spu(store_id: int = Query(...)):
-    return db.query("SELECT * FROM products_spu WHERE store_id=? ORDER BY spu", (store_id,))
+    return db.query("SELECT * FROM dim_spu WHERE store_id=? ORDER BY spu", (store_id,))
 
 
 @app.get("/products/sku")
 def get_products_sku(store_id: int = Query(...)):
-    return db.query("SELECT * FROM products_sku WHERE store_id=? ORDER BY sku", (store_id,))
+    return db.query("SELECT * FROM dim_sku WHERE store_id=? ORDER BY sku", (store_id,))
 
 
 @app.get("/mapping/by-sku")
@@ -47,7 +47,7 @@ def mapping_by_spu(store_id: int, spu: str):
 @app.get("/daily/spu")
 def daily_spu(store_id: int, date_start: str, date_end: str):
     return db.query(
-        "SELECT * FROM daily_spu_data WHERE store_id=? AND date BETWEEN ? AND ? ORDER BY date, spu",
+        "SELECT * FROM fact_spu_daily WHERE store_id=? AND date BETWEEN ? AND ? ORDER BY date, spu",
         (store_id, date_start, date_end),
     )
 
@@ -55,9 +55,14 @@ def daily_spu(store_id: int, date_start: str, date_end: str):
 @app.get("/daily/sku")
 def daily_sku(store_id: int, date_start: str, date_end: str):
     return db.query(
-        "SELECT * FROM daily_sku_data WHERE store_id=? AND date BETWEEN ? AND ? ORDER BY date, sku",
+        "SELECT * FROM fact_sku_daily WHERE store_id=? AND date BETWEEN ? AND ? ORDER BY date, sku",
         (store_id, date_start, date_end),
     )
+
+
+@app.get("/database/status")
+def database_status(store_id: int | None = None):
+    return {"summary": db.get_import_status_summary(store_id), "recent_logs": db.get_recent_import_logs(50)}
 
 
 @app.post("/import/base-info")
@@ -68,6 +73,23 @@ async def import_base_info(store_id: int, file: UploadFile = File(...)):
         tmp_path = tmp.name
     result = BaseInfoImporter(db).import_base_info(store_id, tmp_path)
     logger.info("API 导入基础信息: %s", result)
+    return result
+
+
+@app.post("/import/stage1")
+async def import_stage1(
+    store_id: int,
+    report_type: str,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    file: UploadFile = File(...),
+):
+    suffix = Path(file.filename or "report.xlsx").suffix or ".xlsx"
+    with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+    result = JDDataImporter(db).import_file(store_id, tmp_path, report_type, date_start, date_end)
+    logger.info("API 导入阶段1报表: %s", result)
     return result
 
 
