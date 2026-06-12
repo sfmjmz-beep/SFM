@@ -6,6 +6,13 @@
       "shop_id": "14975660",
       "platform": "JD",
       "enabled": true
+    },
+    {
+      "store_id": 2,
+      "store_name": "朗域",
+      "shop_id": "13548672",
+      "platform": "JD",
+      "enabled": true
     }
   ]
 }

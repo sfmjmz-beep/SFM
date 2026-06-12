@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -199,6 +200,22 @@ def normalize_product_detail(path: str | Path, level: str, date_start: str | Non
     return out
 
 
+def _as_path_list(paths: str | Path | Sequence[str | Path] | None) -> list[str | Path]:
+    if not paths:
+        return []
+    if isinstance(paths, (str, Path)):
+        return [paths]
+    return [path for path in paths if path]
+
+
+def normalize_product_details(paths: str | Path | Sequence[str | Path], level: str,
+                              date_start: str | None = None) -> pd.DataFrame:
+    frames = [normalize_product_detail(path, level, date_start) for path in _as_path_list(paths)]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
 def normalize_rank_location(path: str | Path, date_start: str | None = None) -> pd.DataFrame:
     if not path:
         return pd.DataFrame(columns=["时间", "sku", "类目排名"])
@@ -216,17 +233,26 @@ def normalize_rank_location(path: str | Path, date_start: str | None = None) -> 
     return out
 
 
-def build_summary(spu_file: str | Path, sku_file: str | Path, rank_file: str | Path | None,
+def normalize_rank_locations(paths: str | Path | Sequence[str | Path] | None,
+                             date_start: str | None = None) -> pd.DataFrame:
+    frames = [normalize_rank_location(path, date_start) for path in _as_path_list(paths)]
+    if not frames:
+        return pd.DataFrame(columns=["时间", "sku", "类目排名"])
+    return pd.concat(frames, ignore_index=True).drop_duplicates(["时间", "sku"], keep="last")
+
+
+def build_summary(spu_file: str | Path | Sequence[str | Path], sku_file: str | Path | Sequence[str | Path],
+                  rank_file: str | Path | Sequence[str | Path] | None,
                   store_id: int, db=None, base_file: str | Path | None = None,
                   date_start: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     from .mapper import ProductMapper
 
-    spu_df = normalize_product_detail(spu_file, "SPU", date_start)
-    sku_df = normalize_product_detail(sku_file, "SKU", date_start)
+    spu_df = normalize_product_details(spu_file, "SPU", date_start)
+    sku_df = normalize_product_details(sku_file, "SKU", date_start)
     mapper = ProductMapper(store_id=store_id, db=db, base_file=base_file)
     spu_df = mapper.add_spu_item(spu_df)
     sku_df = mapper.add_sku_mapping(sku_df)
-    rank_df = normalize_rank_location(rank_file, date_start) if rank_file else pd.DataFrame(columns=["时间", "sku", "类目排名"])
+    rank_df = normalize_rank_locations(rank_file, date_start)
     if not rank_df.empty:
         sku_df = sku_df.merge(rank_df[["时间", "sku", "类目排名"]], on=["时间", "sku"], how="left")
     else:

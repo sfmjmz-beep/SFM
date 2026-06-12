@@ -17,7 +17,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def ensure_dirs() -> None:
     for rel in [
         "config", "data/raw/商品明细_SPU", "data/raw/商品明细_SKU", "data/raw/商品排名定位",
-        "data/base", "data/output", "data/database", "logs/screenshots", "samples",
+        "data/raw/订单明细",
+        "data/base", "data/output", "data/database", "data/chrome_user_data/stores",
+        "logs/screenshots", "samples",
     ]:
         (PROJECT_ROOT / rel).mkdir(parents=True, exist_ok=True)
 

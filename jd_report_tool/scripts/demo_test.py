@@ -21,37 +21,86 @@ import pandas as pd
 from src.database import Database
 from src.db_importer import BaseInfoImporter, sync_summary_to_db
 from src.excel_processor import build_summary, read_excel_flexible
-from src.exporter import SKU_COLUMNS, SPU_COLUMNS, export_summary
+from src.exporter import OUTPUT_COLUMNS, SKU_COLUMNS, SPU_COLUMNS, export_summary
 
-REAL_SAMPLE_FILES = {
-    "reference": "SPU与SKU数据汇总表.xlsx",
-    "rank": "艺颂-2026-06-09-搜索分析-排名定位-商品排名.xlsx",
-    "sku": "艺颂-sku14975660_商品明细_离线_不包括对比时间_分天下载_2026-06-01_2026-06-09_zs6xkj7L.xlsx",
-    "spu": "艺颂-spu-14975660_商品明细_离线_不包括对比时间_分天下载_2026-06-01_2026-06-09_jWaAjl2a.xlsx",
-    "base": "艺颂-衍生商品普通POP-SKU信息.xlsx",
+SAMPLE_RULES = {
+    "reference": ("SPU", "SKU", "汇总"),
+    "rank": ("搜索分析", "排名定位"),
+    "sku": ("sku14975660", "商品明细"),
+    "spu": ("spu-14975660", "商品明细"),
+    "base": ("POP-SKU信息",),
 }
+
+SAMPLE_LABELS = {
+    "reference": "SPU与SKU汇总",
+    "rank": "搜索排名",
+    "sku": "SKU商品明细",
+    "spu": "SPU商品明细",
+    "base": "POP-SKU信息",
+}
+
+EXCEL_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
+
+
+def list_excel_files(folder: Path) -> list[Path]:
+    if not folder.exists():
+        return []
+    return sorted(
+        [path for path in folder.iterdir() if path.is_file() and path.suffix.lower() in EXCEL_SUFFIXES],
+        key=lambda path: path.name.lower(),
+    )
+
+
+def match_sample_files(folder: Path) -> tuple[dict[str, Path], dict[str, list[Path]], list[Path]]:
+    excel_files = list_excel_files(folder)
+    matches: dict[str, list[Path]] = {}
+    for key, keywords in SAMPLE_RULES.items():
+        lowered_keywords = [keyword.lower() for keyword in keywords]
+        matches[key] = [
+            path
+            for path in excel_files
+            if all(keyword in path.name.lower() for keyword in lowered_keywords)
+        ]
+    return {key: paths[0] for key, paths in matches.items() if paths}, matches, excel_files
+
+
+def format_excel_listing(folder: Path, excel_files: list[Path]) -> str:
+    if not folder.exists():
+        return f"{folder}: 目录不存在"
+    if not excel_files:
+        return f"{folder}: 未找到 Excel 文件"
+    names = "\n".join(f"  - {path.name}" for path in excel_files)
+    return f"{folder}:\n{names}"
 
 
 def resolve_sample_files() -> dict[str, Path]:
-    """Find real Excel samples without moving or creating binary files.
+    """Find real Excel samples by filename keywords.
 
     Codex PRs must not commit Excel binaries. Users should manually place the
-    five real workbooks in either jd_report_tool/samples/ or the repository root.
+    five real workbooks in a samples directory.
     """
-    search_dirs = [ROOT / "samples", REPO_ROOT]
+    search_dirs = [ROOT / "samples", REPO_ROOT / "samples"]
+    if REPO_ROOT not in search_dirs:
+        search_dirs.append(REPO_ROOT)
+
+    reports = []
     for folder in search_dirs:
-        files = {key: folder / filename for key, filename in REAL_SAMPLE_FILES.items()}
-        if all(path.exists() for path in files.values()):
+        files, matches, excel_files = match_sample_files(folder)
+        if all(key in files for key in SAMPLE_RULES):
             print(f"使用真实样例目录: {folder}")
             return files
 
-    missing_report = []
+        missing = [SAMPLE_LABELS[key] for key in SAMPLE_RULES if not matches[key]]
+        reports.append(f"{folder}: 缺失 {', '.join(missing)}")
+
+    listings = []
     for folder in search_dirs:
-        missing = [filename for filename in REAL_SAMPLE_FILES.values() if not (folder / filename).exists()]
-        missing_report.append(f"{folder}: 缺失 {', '.join(missing)}")
+        listings.append(format_excel_listing(folder, list_excel_files(folder)))
     raise FileNotFoundError(
-        "未找到完整真实 Excel 样例。请手动将 5 个真实 Excel 文件放入 jd_report_tool/samples/ "
-        "或仓库根目录后重新运行。\n" + "\n".join(missing_report)
+        "未找到完整真实 Excel 样例。请确认 samples 目录下有 5 个真实 Excel 文件。\n"
+        + "\n".join(reports)
+        + "\n\nsamples 目录下实际 Excel 文件:\n"
+        + "\n".join(listings)
     )
 
 
@@ -123,12 +172,15 @@ def main() -> None:
         raise AssertionError(f"输出文件名不符合要求: {output.name}")
 
     xls = pd.ExcelFile(output, engine="openpyxl")
-    if set(xls.sheet_names) != {"SPU数据汇总", "SKU数据汇总"}:
+    if set(xls.sheet_names) != {"SPU数据汇总", "SKU数据汇总", "输出表"}:
         raise AssertionError(f"输出工作表不正确: {xls.sheet_names}")
     out_spu_cols = list(pd.read_excel(output, sheet_name="SPU数据汇总", nrows=0, engine="openpyxl").columns)
     out_sku_cols = list(pd.read_excel(output, sheet_name="SKU数据汇总", nrows=0, engine="openpyxl").columns)
+    out_output_cols = list(pd.read_excel(output, sheet_name="输出表", nrows=0, engine="openpyxl").columns)
     if out_spu_cols != expected_spu or out_sku_cols != expected_sku:
         raise AssertionError("输出 Excel 字段顺序与参考表不一致")
+    if out_output_cols != OUTPUT_COLUMNS:
+        raise AssertionError("输出表字段顺序不正确")
 
     sync_result = sync_summary_to_db(1, spu_df, sku_df, db)
     daily_spu_count = db.query("SELECT COUNT(*) AS c FROM daily_spu_data")[0]["c"]
